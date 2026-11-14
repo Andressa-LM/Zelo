@@ -16,7 +16,6 @@ import {
   todayKey,
   treatmentEndDate,
 } from "./lib/health";
-import { searchMedicationImage } from "./lib/integrations";
 import { authRedirectUrl, isGoogleAuthEnabled, isSupabaseConfigured, supabase } from "./lib/supabase";
 import type {
   Appointment,
@@ -271,7 +270,8 @@ function App() {
 
   function savePatient(patient: Patient) {
     setData((current) => ({ ...current, patient }));
-    notify("Seu perfil foi salvo na sua conta.");
+    setSaveStatus("Aguardando salvamento na sua conta…");
+    notify("Salvando seu perfil na sua conta…");
   }
 
   function saveMedication(draft: MedicationDraft) {
@@ -293,6 +293,12 @@ function App() {
       id: previous?.id ?? crypto.randomUUID(),
       initialQuantity: previous?.initialQuantity ?? draft.quantity,
       treatmentEnd: treatmentEndDate(draft.treatment, draft.startDate),
+      ...(previous && draft.quantity <= previous.quantity
+        ? {
+            whatsappAlertSentAt: previous.whatsappAlertSentAt,
+            whatsappAlertAttemptedAt: previous.whatsappAlertAttemptedAt,
+          }
+        : {}),
     };
     setData((current) => ({
       ...current,
@@ -369,7 +375,13 @@ function App() {
     setData((current) => ({
       ...current,
       medications: current.medications.map((item) => item.id === medication.id
-        ? { ...item, quantity: Number((item.quantity + amount).toFixed(2)), initialQuantity: item.initialQuantity + amount }
+        ? {
+            ...item,
+            quantity: Number((item.quantity + amount).toFixed(2)),
+            initialQuantity: item.initialQuantity + amount,
+            whatsappAlertSentAt: undefined,
+            whatsappAlertAttemptedAt: undefined,
+          }
         : item),
       logs: [...current.logs, log],
     }));
@@ -392,19 +404,6 @@ function App() {
     notify("Consulta removida do calendário.");
   }
 
-  async function findMedicationImage(medication: Medication) {
-    try {
-      const image = await searchMedicationImage(medication.name);
-      setData((current) => ({
-        ...current,
-        medications: current.medications.map((item) => item.id === medication.id ? { ...item, image } : item),
-      }));
-      notify("Imagem ilustrativa encontrada. Confira a embalagem; ela pode não corresponder ao medicamento.");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Não foi possível buscar uma imagem.");
-    }
-  }
-
   if (!session || readyUserId !== session.user.id) {
     return (
       <AuthScreen
@@ -425,11 +424,11 @@ function App() {
     <AppShell view={view} onNavigate={setView} onSignOut={() => void signOut()} patientName={data.patient.name} patientAvatar={data.patient.avatarDataUrl} saveStatus={saveStatus}>
       {saveStatus.startsWith("Falha ao salvar") && <div className="notice notice-error" role="alert">{saveStatus}</div>}
       {notice && <div className="toast" role="status" aria-live="polite">{notice}</div>}
-      {view === "inicio" && <Dashboard patient={data.patient} medications={data.medications} appointments={data.appointments} logs={data.logs} onAddMedication={() => setDialog({ kind: "new-medication", date: todayKey() })} onAddAppointment={() => setDialog({ kind: "new-appointment", date: todayKey() })} onToggleDose={toggleDose} />}
-      {view === "medicamentos" && <MedicationsView medications={data.medications} patientName={data.patient.name} onAdd={() => setDialog({ kind: "new-medication", date: todayKey() })} onEdit={(medication) => setDialog({ kind: "edit-medication", medication })} onDelete={deleteMedication} onRefill={refillMedication} onFindImage={findMedicationImage} />}
+      {view === "inicio" && <Dashboard patient={data.patient} medications={data.medications} appointments={data.appointments} logs={data.logs} onAddMedication={() => setDialog({ kind: "new-medication", date: todayKey() })} onAddAppointment={() => setDialog({ kind: "new-appointment", date: todayKey() })} onToggleDose={toggleDose} onOpenProfile={() => setView("perfil")} />}
+      {view === "medicamentos" && <MedicationsView medications={data.medications} onAdd={() => setDialog({ kind: "new-medication", date: todayKey() })} onEdit={(medication) => setDialog({ kind: "edit-medication", medication })} onDelete={deleteMedication} onRefill={refillMedication} />}
       {view === "calendario" && <CalendarView appointments={data.appointments} medications={data.medications} selectedDate={selectedDate} visibleMonth={visibleMonth} onSelectDate={selectDate} onChangeMonth={setVisibleMonth} onAddAppointment={(date) => setDialog({ kind: "new-appointment", date })} onEditAppointment={(appointment) => setDialog({ kind: "edit-appointment", appointment })} onDeleteAppointment={deleteAppointment} onAddMedication={(date) => setDialog({ kind: "new-medication", date })} onEditMedication={(medication) => setDialog({ kind: "edit-medication", medication })} />}
       {view === "relatorios" && <ReportsView medications={data.medications} appointments={data.appointments} logs={data.logs} />}
-      {view === "perfil" && <ProfileView patient={data.patient} onSave={savePatient} />}
+      {view === "perfil" && <ProfileView patient={data.patient} saveStatus={saveStatus} onSave={savePatient} />}
       {dialog.kind !== "closed" && (dialog.kind === "new-medication" || dialog.kind === "edit-medication") && (
         <MedicationDialog
           key={dialog.kind === "edit-medication" ? dialog.medication.id : `new-${dialog.date}`}

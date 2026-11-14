@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Appointment, HealthLog, Medication, Patient } from "../types";
+import { MedicationArtwork } from "./MedicationArtwork";
 import {
   depletionFor,
   formatDate,
   greetingFor,
   hasTaken,
+  reminderNotification,
   todayKey,
-  whatsappUrl,
 } from "../lib/health";
 
 type Props = {
@@ -17,6 +18,7 @@ type Props = {
   onAddMedication: () => void;
   onAddAppointment: () => void;
   onToggleDose: (medication: Medication, time: string) => void;
+  onOpenProfile: () => void;
 };
 
 function AppointmentItem({ appointment }: { appointment: Appointment }) {
@@ -30,7 +32,7 @@ function AppointmentItem({ appointment }: { appointment: Appointment }) {
   );
 }
 
-export function Dashboard({ patient, medications, appointments, logs, onAddMedication, onAddAppointment, onToggleDose }: Props) {
+export function Dashboard({ patient, medications, appointments, logs, onAddMedication, onAddAppointment, onToggleDose, onOpenProfile }: Props) {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     "Notification" in window ? Notification.permission : "unsupported",
   );
@@ -60,21 +62,26 @@ export function Dashboard({ patient, medications, appointments, logs, onAddMedic
       const now = new Date();
       const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       const date = todayKey(now);
-      medications.forEach((medication) => {
-        const key = `${date}:${medication.id}:${currentTime}`;
-        if (!medication.times.includes(currentTime) || hasTaken(logs, medication.id, date, currentTime) || sent.has(key)) return;
-        sent.add(key);
-        const notification = new Notification(`Hora de cuidar de você: ${medication.name}`, {
-          body: `${medication.dose} · ${currentTime}`,
-          tag: key,
-        });
-        notification.onclick = () => window.focus();
+      const due = medications.filter(
+        (medication) =>
+          medication.times.includes(currentTime) &&
+          !hasTaken(logs, medication.id, date, currentTime),
+      );
+      if (!due.length) return;
+      const key = `${date}:${currentTime}:${due.map(({ id }) => id).sort().join(",")}`;
+      if (sent.has(key)) return;
+      sent.add(key);
+      const message = reminderNotification(patient, due, currentTime);
+      const notification = new Notification(message.title, {
+        body: message.body,
+        tag: key,
       });
+      notification.onclick = () => window.focus();
     };
     check();
     const interval = window.setInterval(check, 15_000);
     return () => window.clearInterval(interval);
-  }, [logs, medications, notificationPermission]);
+  }, [logs, medications, notificationPermission, patient]);
 
   async function enableNotifications() {
     if (!("Notification" in window)) {
@@ -94,7 +101,9 @@ export function Dashboard({ patient, medications, appointments, logs, onAddMedic
       {warnings.map(({ medication, depletion }) => (
         <div className="notice notice-warning" key={medication.id}>
           <strong>Um lembrete para você:</strong> o estoque de {medication.name} pode terminar {depletion.days === 0 ? "hoje" : `em ${depletion.days} dia${depletion.days === 1 ? "" : "s"}`}.
-          {" "}<a href={whatsappUrl(patient.name, medication)} target="_blank" rel="noopener noreferrer" className="text-button">Preparar lembrete no WhatsApp ↗</a>
+          {patient.whatsappOptIn && patient.whatsappPhone
+            ? <span> O aviso pelo WhatsApp está autorizado para o número cadastrado.</span>
+            : <> <button className="text-button" type="button" onClick={onOpenProfile}>Configurar aviso pelo WhatsApp no perfil</button></>}
         </div>
       ))}
 
@@ -118,7 +127,7 @@ export function Dashboard({ patient, medications, appointments, logs, onAddMedic
             const taken = hasTaken(logs, medication.id, today, time);
             return (
               <div className="medication-row" key={`${medication.id}-${time}`}>
-                <div className="med-icon">{medication.image ? <img src={medication.image} alt="" loading="lazy" /> : "✿"}</div>
+                <MedicationArtwork className="med-icon" name={medication.name} unit={medication.unit} dose={medication.dose} image={medication.image} />
                 <div className="med-info"><h3>{medication.name}</h3><p>{time} · {medication.dose} · Estoque: {medication.quantity} {medication.unit}</p></div>
                 <div className="dose-actions"><button className={`dose-button ${taken ? "taken" : ""}`} disabled={!taken && medication.quantity < medication.unitsPerDose} onClick={() => onToggleDose(medication, time)}>{taken ? "✓ Tomado" : "Marcar"}</button></div>
               </div>

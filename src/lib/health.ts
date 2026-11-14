@@ -4,15 +4,26 @@ import type {
   HealthLog,
   Medication,
   Patient,
+  ReminderTone,
   ZeloData,
 } from "../types";
 
 export const LEGACY_STORAGE_KEY = "bem-me-quer.v1";
-export const WHATSAPP_NUMBER = "5521972717327";
 
 export function emptyData(): ZeloData {
   return {
-    patient: { name: "", gender: "", dob: "", address: "", conditions: "", avatarDataUrl: "" },
+    patient: {
+      name: "",
+      gender: "",
+      dob: "",
+      address: "",
+      conditions: "",
+      avatarDataUrl: "",
+      whatsappPhone: "",
+      whatsappOptIn: false,
+      reminderTone: "carinhoso",
+      reminderMessage: "",
+    },
     medications: [],
     appointments: [],
     logs: [],
@@ -24,11 +35,20 @@ export function normalizeData(input: unknown): ZeloData {
     throw new Error("Os dados salvos não têm o formato esperado.");
   }
   const parsed = input as Partial<ZeloData>;
+  const savedTone = parsed.patient?.reminderTone;
+  const reminderTone: ReminderTone =
+    savedTone === "atencao" || savedTone === "familiar" || savedTone === "personalizado"
+      ? savedTone
+      : "carinhoso";
   return {
     patient: {
       ...emptyData().patient,
       ...(parsed.patient ?? {}),
       avatarDataUrl: typeof parsed.patient?.avatarDataUrl === "string" ? parsed.patient.avatarDataUrl : "",
+      whatsappPhone: typeof parsed.patient?.whatsappPhone === "string" ? parsed.patient.whatsappPhone : "",
+      whatsappOptIn: parsed.patient?.whatsappOptIn === true,
+      reminderTone,
+      reminderMessage: typeof parsed.patient?.reminderMessage === "string" ? parsed.patient.reminderMessage : "",
     },
     medications: Array.isArray(parsed.medications) ? parsed.medications : [],
     appointments: Array.isArray(parsed.appointments) ? parsed.appointments : [],
@@ -178,37 +198,6 @@ export function adherenceForDate(
   return { expected, taken };
 }
 
-export function whatsappUrl(patientName: string, medication: Medication): string {
-  const name = patientName.trim() || "você";
-  const message = `Olá! O estoque do remédio ${medication.name} de ${name} vai acabar em breve. É hora de providenciar a compra na farmácia.`;
-  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
-}
-
-export function parsePrescriptionText(text: string): {
-  name?: string;
-  times: string[];
-  treatment?: string;
-} {
-  const labeledMedication = text.match(/(?:medicamento|rem[eé]dio)\s*:\s*([^\n,;.]{2,100})/i);
-  const instructedMedication = text.match(
-    /\b(?:tomar|usar)\s+(?:o|a)?\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ-]*)\s+(?=\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|g|ml|comprimidos?|c[aá]psulas?|gotas?)\b)/i,
-  );
-  const name = (labeledMedication?.[1] || instructedMedication?.[1] || "")
-    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|g|ml|comprimidos?|c[aá]psulas?|gotas?)\b.*$/i, "")
-    .trim();
-  const times = [
-    ...new Set(
-      [...text.matchAll(/\b(?:às|as)\s+([01]?\d|2[0-3])(?::([0-5]\d)|h([0-5]\d)?)?/gi)].map(
-        (match) => `${match[1].padStart(2, "0")}:${(match[2] || match[3] || "00").padStart(2, "0")}`,
-      ),
-    ),
-  ];
-  const duration = text.match(
-    /(?:por|durante|dura[cç][aã]o\s*:?)\s*(\d+\s*(?:dias?|semanas?|meses?|anos?))/i,
-  );
-  return { ...(name ? { name } : {}), times, ...(duration ? { treatment: duration[1] } : {}) };
-}
-
 export function asPatient(input: Partial<Patient>): Patient {
   return {
     name: input.name ?? "",
@@ -217,7 +206,54 @@ export function asPatient(input: Partial<Patient>): Patient {
     address: input.address ?? "",
     conditions: input.conditions ?? "",
     avatarDataUrl: input.avatarDataUrl ?? "",
+    whatsappPhone: input.whatsappPhone ?? "",
+    whatsappOptIn: input.whatsappOptIn ?? false,
+    reminderTone: input.reminderTone ?? "carinhoso",
+    reminderMessage: input.reminderMessage ?? "",
   };
+}
+
+const reminderMessages: Record<Exclude<ReminderTone, "personalizado">, string> = {
+  carinhoso: "Lembrete do Zelo: chegou a hora de cuidar de você, {nome}. Está na hora de tomar {medicamentos}. {estoque}",
+  atencao: "Atenção, {nome}: chegou a hora de tomar {medicamentos}. {estoque}",
+  familiar: "Olá, {nome}! Está na hora dos seus remédios: {medicamentos}. {estoque}",
+};
+
+export function reminderNotification(
+  patient: Patient,
+  medications: Medication[],
+  time: string,
+): { title: string; body: string } {
+  const tone = patient.reminderTone || "carinhoso";
+  const title =
+    tone === "atencao"
+      ? "🔔 Lembrete importante"
+      : tone === "familiar"
+        ? "♡ Um lembrete com carinho"
+        : "🌿 Um cuidado para você";
+  const moment = Number(time.slice(0, 2)) < 12 ? "manhã" : Number(time.slice(0, 2)) < 18 ? "tarde" : "noite";
+  const medicationNames = medications
+    .map((medication) => `${medication.name}${medication.dose ? ` (${medication.dose})` : ""}`)
+    .join(", ");
+  const lowStock = medications
+    .filter((medication) => depletionFor(medication).days <= 3)
+    .map((medication) => {
+      const days = depletionFor(medication).days;
+      return `O estoque de ${medication.name} pode acabar ${days === 0 ? "hoje" : `em ${days} dia${days === 1 ? "" : "s"}`}.`;
+    });
+  const stockMessage = lowStock.join(" ");
+  const template =
+    tone === "personalizado"
+      ? patient.reminderMessage
+      : reminderMessages[tone];
+  const body = template
+    .replaceAll("{nome}", patient.name.trim() || "você")
+    .replaceAll("{momento}", moment)
+    .replaceAll("{medicamentos}", medicationNames)
+    .replaceAll("{estoque}", stockMessage)
+    .replace(/\s+/g, " ")
+    .trim();
+  return { title, body: body || `${medicationNames} · ${time}` };
 }
 
 export function appointmentForDate(appointments: Appointment[], date: string): Appointment[] {

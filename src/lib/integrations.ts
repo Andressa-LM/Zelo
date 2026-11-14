@@ -1,75 +1,78 @@
-import type { Medication } from "../types";
+export type MedicationSuggestion = {
+  id: string;
+  name: string;
+  concentration: string;
+  presentation: string;
+  manufacturer: string;
+};
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+type FarmaBookHit = {
+  id?: string;
+  produto?: string;
+  produtoResolvido?: string;
+  concentracao?: string;
+  apresentacaoDescritiva?: string;
+  laboratorio?: string;
+};
 
-export async function searchMedicationImage(name: string): Promise<string> {
-  const endpoint = new URL("https://commons.wikimedia.org/w/api.php");
-  endpoint.search = new URLSearchParams({
-    action: "query",
-    generator: "search",
-    gsrsearch: `${name} medicamento embalagem`,
-    gsrnamespace: "6",
-    gsrlimit: "1",
-    prop: "imageinfo",
-    iiprop: "url",
-    iiurlwidth: "320",
-    format: "json",
-    origin: "*",
-  }).toString();
-  const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error(`O serviço de imagens respondeu com status ${response.status}.`);
-  const result: { query?: { pages?: Record<string, { imageinfo?: { thumburl?: string; url?: string }[] }> } } =
-    await response.json();
-  const page = Object.values(result.query?.pages ?? {})[0];
-  const image = page?.imageinfo?.[0]?.thumburl || page?.imageinfo?.[0]?.url;
-  if (!image || !/^https:\/\//i.test(image)) throw new Error("Nenhuma imagem disponível para esta busca.");
-  return image;
-}
+export async function searchMedicationSuggestions(
+  query: string,
+  signal?: AbortSignal,
+): Promise<MedicationSuggestion[]> {
+  const search = query.trim().slice(0, 100);
+  if (search.length < 2) return [];
 
-function fileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo de imagem."));
-    reader.onload = () => {
-      const result = String(reader.result || "");
-      const comma = result.indexOf(",");
-      if (comma < 0) reject(new Error("O arquivo não pôde ser convertido para leitura."));
-      else resolve(result.slice(comma + 1));
-    };
-    reader.readAsDataURL(file);
+  const endpoint = new URL("https://api.farmabook.com.br/public/search");
+  endpoint.search = new URLSearchParams({ q: search, limit: "6" }).toString();
+  const response = await fetch(endpoint, {
+    headers: { Accept: "application/json" },
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(7000)]) : AbortSignal.timeout(7000),
   });
+  if (!response.ok) throw new Error(`O catálogo respondeu com status ${response.status}.`);
+  const result: { hits?: FarmaBookHit[] } = await response.json();
+  return (result.hits ?? [])
+    .filter((hit) => typeof hit.produtoResolvido === "string" || typeof hit.produto === "string")
+    .map((hit, index) => ({
+      id: hit.id || `${hit.produtoResolvido || hit.produto}-${hit.concentracao || index}`,
+      name: [hit.produtoResolvido || hit.produto || "", hit.concentracao || ""].filter(Boolean).join(" "),
+      concentration: hit.concentracao || "",
+      presentation: hit.apresentacaoDescritiva || "",
+      manufacturer: hit.laboratorio || "",
+    }));
 }
 
-export async function readPrescriptionWithGemini(
-  text: string,
-  imageFile: File | undefined,
-  apiKey: string,
-): Promise<Partial<Medication>> {
-  const parts: Array<Record<string, unknown>> = [
-    {
-      text: `Leia a receita médica fornecida e extraia somente informações explicitamente presentes. Não deduza nem sugira posologia. Responda em JSON com os campos name (string), dose (string), times (array de horários 24h HH:MM), unitsPerDose (número apenas se inequívoco, caso contrário null), quantity (número apenas se indicado, caso contrário null), unit (uma de comprimidos, cápsulas, mL, mg, gotas, unidades, somente se indicada), treatment (string). Use string vazia, array vazio ou null para campos ausentes. Preserve o texto da dose sem reinterpretar. O usuário deve confirmar os resultados com a receita e seu profissional de saúde. Texto da receita: ${text || "Consulte a imagem anexada."}`,
-    },
-  ];
-  if (imageFile) {
-    parts.push({
-      inline_data: { mime_type: imageFile.type, data: await fileAsBase64(imageFile) },
+export async function fetchMedicationImage(
+  medicationName: string,
+): Promise<{ imageUrl: string; isFallback: boolean }> {
+  const name = medicationName.trim().slice(0, 120);
+  if (!name) return { imageUrl: "", isFallback: true };
+
+  try {
+    const endpoint = new URL("https://commons.wikimedia.org/w/api.php");
+    endpoint.search = new URLSearchParams({
+      action: "query",
+      generator: "search",
+      gsrsearch: `${name} medicamento`,
+      gsrnamespace: "6",
+      gsrlimit: "5",
+      prop: "imageinfo",
+      iiprop: "url",
+      iiurlwidth: "320",
+      format: "json",
+      origin: "*",
+    }).toString();
+    const response = await fetch(endpoint, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(7000),
     });
+    if (!response.ok) return { imageUrl: "", isFallback: true };
+    const result: { query?: { pages?: Record<string, { imageinfo?: { thumburl?: string; url?: string }[] }> } } =
+      await response.json();
+    const image = Object.values(result.query?.pages ?? {})
+      .map((page) => page.imageinfo?.[0]?.thumburl || page.imageinfo?.[0]?.url || "")
+      .find((url) => /^https:\/\//i.test(url));
+    return image ? { imageUrl: image, isFallback: false } : { imageUrl: "", isFallback: true };
+  } catch {
+    return { imageUrl: "", isFallback: true };
   }
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: "application/json" } }),
-    },
-  );
-  const result: {
-    error?: { message?: string };
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  } = await response.json();
-  if (!response.ok) throw new Error(result.error?.message || `O serviço respondeu com status ${response.status}.`);
-  const raw = result.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text;
-  if (!raw) throw new Error("A resposta do serviço não continha dados para preencher.");
-  return JSON.parse(raw) as Partial<Medication>;
 }
-

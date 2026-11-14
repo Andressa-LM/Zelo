@@ -8,6 +8,8 @@ export type GenderIdentity =
   | "outra"
   | "nao-informar";
 
+export type ReminderTone = "carinhoso" | "atencao" | "familiar" | "personalizado";
+
 export type Patient = {
   name: string;
   gender: GenderIdentity;
@@ -15,6 +17,10 @@ export type Patient = {
   address: string;
   conditions: string;
   avatarDataUrl: string;
+  whatsappPhone: string;
+  whatsappOptIn: boolean;
+  reminderTone: ReminderTone;
+  reminderMessage: string;
 };
 
 export type Medication = {
@@ -30,6 +36,8 @@ export type Medication = {
   startDate: string;
   treatmentEnd: string;
   image: string;
+  whatsappAlertSentAt?: string;
+  whatsappAlertAttemptedAt?: string;
 };
 
 export type Appointment = {

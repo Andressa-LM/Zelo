@@ -153,14 +153,14 @@ export function AuthScreen({
           </button>
         </form>
         {mode === "login" && (
-          <>
-            <button className="text-button auth-reset" type="button" disabled={!configured || busy} onClick={() => void resetPassword()}>
-              Esqueci minha senha
-            </button>
-            <button className="text-button auth-reset" type="button" disabled={!configured || busy} onClick={() => void resendConfirmation()}>
-              Reenviar confirmação de e-mail
-            </button>
-          </>
+          <button className="text-button auth-reset" type="button" disabled={!configured || busy} onClick={() => void resetPassword()}>
+            Esqueci minha senha
+          </button>
+        )}
+        {mode === "signup" && (
+          <button className="text-button auth-reset" type="button" disabled={!configured || busy} onClick={() => void resendConfirmation()}>
+            Reenviar confirmação de e-mail
+          </button>
         )}
         <p className="auth-privacy">Seus dados de saúde são armazenados na sua conta e protegidos por regras individuais de acesso.</p>
       </div>
