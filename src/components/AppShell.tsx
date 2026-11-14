@@ -31,8 +31,7 @@ export function AppShell({ view, onNavigate, onSignOut, patientName, patientAvat
     <div className="app-shell">
       <aside className="sidebar" aria-label="Navegação principal">
         <a className="brand" href="#inicio" aria-label="Zelo, início">
-          <span className="brand-flower" aria-hidden="true">❋</span>
-          <span>Zelo<small>cuidado no seu tempo</small></span>
+          <img className="brand-logo" src="/zelo-logo.png" alt="Zelo — cuidado que organiza" />
         </a>
         <nav className="side-nav">
           {navigation.map((item) => (
@@ -47,7 +46,9 @@ export function AppShell({ view, onNavigate, onSignOut, patientName, patientAvat
 
       <main className="main-content">
         <header className="topbar">
-          <div className="mobile-brand"><span className="brand-flower" aria-hidden="true">❋</span> Zelo</div>
+          <a className="mobile-brand" href="#inicio" aria-label="Zelo, início">
+            <img className="mobile-brand-logo" src="/zelo-logo.png" alt="" />
+          </a>
           <p className="today-label">{today}</p>
           <button className="avatar-button" onClick={() => onNavigate("perfil")} aria-label="Abrir meu perfil">
             {patientAvatar ? <img src={patientAvatar} alt="" /> : initials(patientName)}

@@ -28,6 +28,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .app-shell { min-height: 100vh; }
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 3; display: flex; width: 248px; flex-direction: column; padding: 28px 18px 22px; background: #f0f1e7; border-right: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 10px 38px; color: var(--ink); font-family: "Nunito", sans-serif; font-size: 19px; font-weight: 800; text-decoration: none; }
+.brand-logo { display: block; width: min(100%, 205px); height: auto; object-fit: contain; }
 .brand-flower { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #e1e9d8; color: var(--green); font-size: 25px; }
 .brand small { display: block; margin-top: 1px; color: var(--muted); font: 500 10px "DM Sans", sans-serif; letter-spacing: .04em; }
 .side-nav { display: grid; gap: 7px; }
@@ -200,8 +201,8 @@ button.calendar-day { cursor: pointer; }
   .sidebar { display: none; }
   .main-content { margin: 0; padding: 0 23px 90px; }
   .topbar { height: 62px; justify-content: space-between; }
-  .mobile-brand { display: flex; align-items: center; gap: 8px; font-family: "Nunito", sans-serif; font-size: 15px; font-weight: 800; }
-  .mobile-brand .brand-flower { width: 30px; height: 30px; font-size: 21px; }
+  .mobile-brand { display: flex; width: 118px; min-width: 90px; align-items: center; text-decoration: none; }
+  .mobile-brand-logo { display: block; width: 100%; max-height: 48px; object-fit: contain; object-position: left center; }
   .today-label { margin-left: auto; font-size: 10px; }
   .avatar-button { width: 34px; height: 34px; }
   .view { padding-top: 29px; }
@@ -248,7 +249,8 @@ button.calendar-day { cursor: pointer; }
 
 .auth-screen { display: grid; min-height: 100vh; align-content: center; justify-items: center; gap: 20px; padding: 28px 16px; background: radial-gradient(ellipse at 18% 10%, #e8eee1 0, transparent 38%), radial-gradient(ellipse at 90% 95%, #f3edcf 0, transparent 34%), var(--cream); }
 .auth-card { width: min(100%, 450px); padding: 32px; border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 16px 48px rgb(52 69 48 / 9%); }
-.auth-brand { padding: 0 0 25px; font-size: 22px; }
+.auth-brand { padding: 0 0 25px; }
+.auth-brand .brand-logo { width: min(100%, 250px); }
 .auth-card h1 { font-size: clamp(24px, 5vw, 30px); }
 .auth-card > .subheading { margin-bottom: 20px; font-size: 13px; }
 .auth-card > .notice { margin-top: 12px; }

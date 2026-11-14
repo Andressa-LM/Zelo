@@ -93,8 +93,7 @@ export function AuthScreen({
     <section className="auth-screen" aria-labelledby="auth-title">
       <div className="auth-card">
         <a className="brand auth-brand" href="#" aria-label="Zelo">
-          <span className="brand-flower" aria-hidden="true">❋</span>
-          <span>Zelo<small>cuidado no seu tempo</small></span>
+          <img className="brand-logo" src="/zelo-logo.png" alt="Zelo — cuidado que organiza" />
         </a>
         <p className="eyebrow">SEU CANTINHO DE CUIDADO</p>
         <h1 id="auth-title">Entre no seu espaço de cuidado</h1>
