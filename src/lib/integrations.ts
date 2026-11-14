@@ -34,7 +34,7 @@ export async function searchMedicationSuggestions(
     .filter((hit) => typeof hit.produtoResolvido === "string" || typeof hit.produto === "string")
     .map((hit, index) => ({
       id: hit.id || `${hit.produtoResolvido || hit.produto}-${hit.concentracao || index}`,
-      name: [hit.produtoResolvido || hit.produto || "", hit.concentracao || ""].filter(Boolean).join(" "),
+      name: hit.produtoResolvido || hit.produto || "",
       concentration: hit.concentracao || "",
       presentation: hit.apresentacaoDescritiva || "",
       manufacturer: hit.laboratorio || "",

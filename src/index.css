@@ -218,6 +218,10 @@ button.calendar-day { cursor: pointer; }
 .medication-suggestion strong { font-size: 13px; }
 .medication-suggestion span, .medication-suggestions-status { margin: 0; color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.45; }
 .medication-suggestions-status { padding: 12px 13px; }
+.medication-catalog-detail { display: grid; gap: 5px; padding: 12px 14px; border: 1px solid #dfe8d8; border-radius: 12px; background: #f2f5ed; color: var(--ink); font-size: 11px; line-height: 1.5; }
+.medication-catalog-detail strong { color: var(--green-dark); font-size: 12px; }
+.medication-catalog-detail span, .medication-catalog-detail small { color: var(--muted); }
+.medication-catalog-detail small { font-size: 10px; }
 .time-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 4px; }
 .image-preview { display: flex; min-height: 86px; align-items: center; gap: 13px; padding: 12px; border-radius: 13px; background: #f5f5ee; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .image-preview .medication-artwork { width: 56px; height: 56px; border-radius: 12px; }

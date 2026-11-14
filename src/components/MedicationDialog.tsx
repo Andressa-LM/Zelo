@@ -12,9 +12,36 @@ type Props = {
   onSave: (draft: MedicationDraft) => void;
 };
 
-const units = ["comprimidos", "cápsulas", "mL", "mg", "gotas", "ampolas", "frascos", "unidades"];
+const units = ["comprimidos", "cápsulas", "mL", "mg", "gotas", "ampolas", "frascos", "doses", "sachês", "adesivos", "g", "unidades"];
 const treatmentOptions = ["5 dias", "7 dias", "14 dias", "1 mês", "3 meses", "6 meses", "12 meses", "uso contínuo"];
 const MAX_MEDICATION_IMAGE_SIZE = 450_000;
+
+function packageUnit(presentation: string): string | null {
+  const normalized = presentation.toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (/\bml\b|\bmililitros?\b/.test(normalized)) return "mL";
+  if (/\bgotas?\b/.test(normalized)) return "gotas";
+  if (/\bampolas?\b/.test(normalized)) return "ampolas";
+  if (/\bfrascos?\b/.test(normalized)) return "frascos";
+  if (/\bsaches?\b/.test(normalized)) return "sachês";
+  if (/\badesivos?\b/.test(normalized)) return "adesivos";
+  if (/\bc[aá]psulas?\b/.test(presentation.toLocaleLowerCase("pt-BR"))) return "cápsulas";
+  if (/\bcomprimid[oa]s?\b/.test(normalized)) return "comprimidos";
+  if (/\bdoses?\b|\bspray\b/.test(normalized)) return "doses";
+  if (/\bgramas?\b|\bg\b/.test(normalized)) return "g";
+  return null;
+}
+
+function packageStock(presentation: string): { quantity: number; unit: string } | null {
+  const normalized = presentation.toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const match = normalized.match(/(?:\bx\s*|\b(?:caixa|embalagem)\s+com\s+|\bc\/\s*)(\d+(?:[,.]\d+)?)\s*(comprimidos?|capsulas?|ml|mililitros?|gotas?|ampolas?|frascos?|doses?|saches?|adesivos?|g|gramas?)?\b/);
+  if (!match) return null;
+
+  const quantity = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  const unit = packageUnit(match[2] || presentation);
+  if (!unit) return null;
+  return { quantity, unit };
+}
 
 async function prepareMedicationImage(file: File): Promise<string> {
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
@@ -77,8 +104,12 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
   const [suggestionsUnavailable, setSuggestionsUnavailable] = useState(false);
   const [suggestionsSearched, setSuggestionsSearched] = useState(false);
   const [imageSearchBusy, setImageSearchBusy] = useState(false);
+  const [selectedSuggestion, setSelectedSuggestion] = useState<MedicationSuggestion | null>(null);
+  const [imageSearchTerm, setImageSearchTerm] = useState(medication?.name ?? "");
   const [doseText, setDoseText] = useState(medication?.dose ?? "");
   const [stockUnit, setStockUnit] = useState(medication?.unit ?? "comprimidos");
+  const [stockQuantity, setStockQuantity] = useState(medication?.quantity ?? "");
+  const [unitsPerDose, setUnitsPerDose] = useState(medication?.unitsPerDose ?? 1);
   const [times, setTimes] = useState(medication?.times.length ? medication.times : ["08:00"]);
   const initialTreatment = medication?.treatment ?? "3 meses";
   const [treatmentChoice, setTreatmentChoice] = useState(
@@ -109,13 +140,23 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
   }, []);
 
   function updateMedicationName(value: string) {
-    if (value.trim() !== medication?.name && image) {
+    if (value.trim() !== medicationName.trim()) {
       imageSequence.current += 1;
-      setImage("");
-      setCustomImage(false);
-      setImageMessage("");
+      setImageSearchBusy(false);
+      if (selectedSuggestion) {
+        setDoseText("");
+        setStockQuantity("");
+        setStockUnit("comprimidos");
+      }
+      if (value.trim() !== medication?.name && image) {
+        setImage("");
+        setCustomImage(false);
+        setImageMessage("");
+      }
     }
     setMedicationName(value);
+    setSelectedSuggestion(null);
+    setImageSearchTerm(value);
     setSuggestions([]);
     setSuggestionsUnavailable(false);
     setSuggestionsSearched(false);
@@ -151,16 +192,30 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
   }
 
   function chooseSuggestion(suggestion: MedicationSuggestion) {
-    if (suggestion.name !== medicationName && suggestion.name !== medication?.name && image) {
-      imageSequence.current += 1;
+    const fullName = [suggestion.name, suggestion.concentration].filter(Boolean).join(" ");
+    imageSequence.current += 1;
+    setImageSearchBusy(false);
+    if (fullName !== medication?.name && image) {
       setImage("");
       setCustomImage(false);
     }
-    setMedicationName(suggestion.name);
+    setMedicationName(fullName);
+    setSelectedSuggestion(suggestion);
+    const searchTerm = [suggestion.name, suggestion.concentration, suggestion.manufacturer].filter(Boolean).join(" ");
+    setImageSearchTerm(searchTerm);
+    setDoseText(suggestion.concentration || "");
+    setStockQuantity("");
+    setStockUnit(packageUnit(suggestion.presentation) ?? "comprimidos");
+    const packageHint = packageStock(suggestion.presentation);
+    if (packageHint) {
+      setStockUnit(packageHint.unit);
+      setStockQuantity(packageHint.quantity);
+    }
     setImageMessage("");
     setSuggestions([]);
     setSuggestionsOpen(false);
     setActiveSuggestion(-1);
+    void findSuggestedImage(searchTerm);
   }
 
   function handleNameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -207,16 +262,16 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
     setImageMessage("A ilustração de apoio será exibida no lugar da foto.");
   }
 
-  async function findSuggestedImage() {
-    if (!medicationName.trim()) {
+  async function findSuggestedImage(term = imageSearchTerm) {
+    if (!term.trim()) {
       setImageMessage("Informe o nome do medicamento antes de buscar uma imagem.");
       return;
     }
     const sequence = ++imageSequence.current;
     setImageSearchBusy(true);
-    setImageMessage("Buscando uma imagem ilustrativa…");
+    setImageMessage("Buscando uma imagem ilustrativa para esta sugestão…");
     try {
-      const result = await fetchMedicationImage(medicationName);
+      const result = await fetchMedicationImage(term);
       if (sequence !== imageSequence.current) return;
       if (result.isFallback) {
         setImage("");
@@ -271,6 +326,8 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
     });
   }
 
+  const selectedPackage = selectedSuggestion ? packageStock(selectedSuggestion.presentation) : null;
+
   return (
     <dialog
       className="app-dialog"
@@ -324,7 +381,7 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => chooseSuggestion(suggestion)}
                         >
-                          <strong>{suggestion.name}</strong>
+                          <strong>{[suggestion.name, suggestion.concentration].filter(Boolean).join(" ")}</strong>
                           <span>{[suggestion.presentation, suggestion.manufacturer].filter(Boolean).join(" · ")}</span>
                         </button>
                       ))}
@@ -335,6 +392,19 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
             </div>
             <small>As sugestões vêm de um catálogo externo (FarmaBook). O nome digitado é enviado para a busca; confira se corresponde ao seu medicamento.</small>
           </label>
+          {selectedSuggestion && (
+            <div className="medication-catalog-detail" role="status">
+              <strong>Detalhes sugeridos pelo catálogo</strong>
+              <span>{[
+                selectedSuggestion.concentration && `Concentração: ${selectedSuggestion.concentration}`,
+                selectedSuggestion.presentation && `Apresentação: ${selectedSuggestion.presentation}`,
+                selectedSuggestion.manufacturer && `Fabricante: ${selectedSuggestion.manufacturer}`,
+              ].filter(Boolean).join(" · ")}</span>
+              <small>{selectedPackage
+                ? `Unidade e quantidade inicial sugeridas: ${selectedPackage.quantity} ${selectedPackage.unit}. Confira na embalagem e ajuste o estoque disponível. A concentração foi preenchida na orientação abaixo, mas não representa a posologia. Siga a receita. A busca de imagem usará o nome, a concentração e o fabricante encontrados.`
+                : "Não identificamos com segurança a quantidade da embalagem. Confira e informe unidade e estoque manualmente. A dose e os horários não são inferidos pelo catálogo; siga a receita. A busca de imagem usará o nome, a concentração e o fabricante encontrados."}</small>
+            </div>
+          )}
           <div className="image-preview">
             <MedicationArtwork name={medicationName} unit={stockUnit} dose={doseText} image={image} />
             <div className="image-preview-content">
@@ -342,7 +412,7 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
               <div className="image-preview-actions">
                 <input ref={imageInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void uploadMedicationImage(event.target.files?.[0])} aria-label="Escolher imagem do medicamento" />
                 <button className="button button-soft image-upload-button" type="button" onClick={() => imageInputRef.current?.click()}>{image ? "Trocar foto" : "Escolher foto"}</button>
-                <button className="text-button image-search-button" type="button" disabled={imageSearchBusy || !medicationName.trim()} onClick={() => void findSuggestedImage()}>{imageSearchBusy ? "Buscando…" : "Buscar imagem sugerida"}</button>
+                <button className="text-button image-search-button" type="button" disabled={imageSearchBusy || !medicationName.trim()} onClick={() => void findSuggestedImage()}>{imageSearchBusy ? "Buscando…" : selectedSuggestion ? "Tentar outra imagem" : "Buscar imagem sugerida"}</button>
                 {image && <button className="text-button image-remove-button" type="button" onClick={removeMedicationImage}>Remover foto</button>}
               </div>
               <small className="image-search-disclaimer">Uma imagem encontrada pode não ser do mesmo fabricante ou apresentação. Confirme na embalagem.</small>
@@ -355,9 +425,11 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
             <span aria-hidden="true">2</span><div><h3 id="medicine-schedule-title">Como foi orientado?</h3><p>Use as informações da receita ou da orientação profissional.</p></div>
           </div>
           <div className="form-grid">
-            <label className="field field-wide">Como tomar? *
+            <label className="field field-wide">Concentração e orientação da receita *
               <input name="dose" required maxLength={140} value={doseText} onChange={(event) => setDoseText(event.target.value)} placeholder="Ex.: 1 comprimido de 500 mg ou 5 mL" />
-              <small>Copie a orientação sem alterar a dose.</small>
+              <small>{selectedSuggestion?.concentration
+                ? `Preenchemos ${selectedSuggestion.concentration} com base no catálogo. Isso é a concentração do produto, não a orientação de uso. Confira e complete conforme a receita.`
+                : "Copie a orientação sem alterar a dose."}</small>
             </label>
             <label className="field field-wide" htmlFor="medication-time-count">Quantos horários por dia?
               <select id="medication-time-count" value={times.length} onChange={(event) => setTimes((current) => Array.from({ length: Number(event.target.value) }, (_, index) => current[index] ?? "08:00"))}>
@@ -396,11 +468,11 @@ export function MedicationDialog({ open, medication, startDate, onClose, onSave 
               <select name="unit" value={stockUnit} onChange={(event) => setStockUnit(event.target.value)}>{units.map((unit) => <option key={unit}>{unit}</option>)}</select>
             </label>
             <label className="field">Quanto usa por horário? *
-              <input name="unitsPerDose" type="number" min="0.01" step="0.01" required defaultValue={medication?.unitsPerDose ?? 1} />
+              <input name="unitsPerDose" type="number" min="0.01" step="0.01" required value={unitsPerDose} onChange={(event) => setUnitsPerDose(Number(event.target.value))} />
               <small>Ex.: 1 comprimido ou 5 mL.</small>
             </label>
             <label className="field field-wide">Quanto ainda tem na embalagem? *
-              <input name="quantity" type="number" min="0" step="0.01" required defaultValue={medication?.quantity ?? ""} placeholder={`Ex.: 30 ${stockUnit}`} />
+              <input name="quantity" type="number" min="0" step="0.01" required value={stockQuantity} onChange={(event) => setStockQuantity(event.target.value === "" ? "" : Number(event.target.value))} placeholder={`Ex.: 30 ${stockUnit}`} />
               <small>Informe a quantidade que está disponível agora.</small>
             </label>
           </div>
